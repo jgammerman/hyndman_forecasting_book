@@ -1,0 +1,18 @@
+---
+title: "Ch2 - Time series graphics"
+author: "James"
+date: "21/04/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+        echo = TRUE,
+        comment = "#>",
+        collapse = TRUE)
+```
+
+```{r, message=FALSE}
+library(fpp3)
+```
+
