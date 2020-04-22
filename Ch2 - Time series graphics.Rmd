@@ -3,6 +3,8 @@ title: "Ch2 - Time series graphics"
 author: "James"
 date: "21/04/2020"
 output: html_document
+editor_options: 
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -12,9 +14,122 @@ knitr::opts_chunk$set(
         collapse = TRUE)
 ```
 
+# Introduction
+
+Chapter link: https://otexts.com/fpp3/graphics.html
+
+The first thing to do in any data analysis task is to plot the data. Graphs enable many features of the data to be visualised, including patterns, unusual observations, changes over time, and relationships between variables. The features that are seen in plots of the data must then be incorporated, as much as possible, into the forecasting methods to be used. Just as the type of data determines what forecasting method to use, it also determines what graphs are appropriate. But before we produce graphs, we need to set up our time series in R.
+
+# 2.1 `tsibble` objects
+
+A time series can be thought of as a list of numbers (the measurements), along with some information about what times those numbers were recorded (the index). This information can be stored as a `tsibble` object in R.
+
 ```{r, message=FALSE}
-library(fpp3)
-1+1
-2+1
+library(tsibble)
+
+y <- tsibble(Year = 2015:2019, Observation = c(123,39,78,52,110), index = Year)
+y
 ```
 
+`tsibble` objects extend tidy data frames (`tibble` objects) by introducing temporal structure.
+
+For observations that are more frequent than once per year, we need to use a time class function on the index. For example, suppose we have a monthly dataset `z`:
+
+```{r}
+z <- tibble(Month = c("2019 Jan", "2019 Feb", "2019 Mar", "2019 Apr"), Observation = c(50, 23, 34, 30))
+z
+```
+
+This can be converted to a tsibble object using the `yearmonth()` function:
+
+```{r}
+z2  <- z %>% 
+  mutate(Month = yearmonth(Month)) %>% 
+  as_tsibble(index = Month)
+
+z2
+```
+
+Other time class functions can be used depending on the frequency of the observations:
+
+```{r}
+z3  <- z %>% 
+  mutate(Month = yearquarter(Month)) %>% 
+  as_tsibble(index = Month)
+
+z3
+```
+
+## Working with `tsibble` objects
+
+```{r}
+data(PBS)
+PBS 
+```
+
+```{r}
+PBS %>% 
+  filter(ATC2 == "A10") %>% 
+  select(Month, Concession, Type, Cost)
+
+PBS %>% 
+  filter(ATC2 == "A10") %>% 
+  select(Month, Cost)  # invalid as we get duplicate rows for each month (?)
+
+
+```
+
+```{r}
+PBS %>%
+  filter(ATC2=="A10") %>%
+  select(Month, Concession, Type, Cost) %>%
+  summarise(TotalC = sum(Cost))
+
+
+```
+
+```{r}
+PBS %>%
+  filter(ATC2=="A10") %>%
+  select(Month, Concession, Type, Cost) %>%
+  summarise(TotalC = sum(Cost)) %>%
+  mutate(Cost = TotalC/1e6)
+```
+
+```{r}
+PBS %>%
+  filter(ATC2=="A10") %>%
+  select(Month, Concession, Type, Cost) %>%
+  summarise(TotalC = sum(Cost)) %>%
+  mutate(Cost = TotalC/1e6) -> a10
+
+a10
+```
+
+## Read a csv file and convert to a tsibble
+
+```{r}
+
+prison <- readr::read_csv("https://OTexts.com/fpp3/extrafiles/prison_population.csv")
+
+prison <- prison %>%
+  mutate(quarter = yearquarter(date)) %>%
+  select(-date) %>%
+  as_tsibble(key = c(state, gender, legal, indigenous), index = quarter)
+
+prison
+
+```
+
+*For a tsibble to be valid, it requires a unique index for each combination of keys. The `tsibble()` or `as_tsibble()` function will return an error if this is not true.*
+
+## The seasonal period
+
+Some graphics and some models will use the seasonal period of the data. The seasonal period is the number of observations before the seasonal pattern repeats. In most cases, this will be automatically detected using the time index variable.
+
+For quarterly, monthly and weekly data, there is only one seasonal period — the number of observations within each year. Actually, there are not  
+52 weeks in a year, but 365.25/7= 52.18 on average, allowing for a leap year every fourth year. Approximating seasonal periods to integers can be useful as many seasonal terms in models only support integer seasonal periods.
+
+If the data is observed more than once per week, then there is often more than one seasonal pattern in the data. For example, data with daily observations might have weekly (period = 7) or annual (period = 365.25) seasonal patterns. The same goes for data observed every minute (hourly, daily, weekly and annual seasonality).
+
+More complicated (and unusual) seasonal patterns can be specified using the `period()` function in the lubridate package.
