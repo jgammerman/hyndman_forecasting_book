@@ -27,7 +27,14 @@ A time series can be thought of as a list of numbers (the measurements), along w
 ```{r, message=FALSE}
 library(tsibble)
 library(tidyverse)
+library(tsibbledata)
+library(feasts)  # NB need this or get error: the functions for graphics are in the feasts package. So just load the feasts package as well and you can autoplot() a tsibble object.
 
+setwd("~/Desktop/Data_Science /DS_tutorials/Hyndman_Forecasting_book")
+```
+
+
+```{r}
 y <- tsibble(Year = 2015:2019, Observation = c(123,39,78,52,110), index = Year)
 y
 ```
@@ -223,3 +230,185 @@ The examples in Figure 2.3 show different combinations of the above components:
 4. The daily change in the Google closing stock price (bottom right) has no trend, seasonality or cyclic behaviour. There are random fluctuations which do not appear to be very predictable, and no strong patterns that would help with developing a forecasting model.
 
 # 2.4 Seasonal plots
+
+A seasonal plot is similar to a time plot except that the data are plotted against the individual “seasons” in which the data were observed. An example is given below showing the antidiabetic drug sales.
+
+```{r}
+a10 %>% gg_season(Cost, labels = "both") +
+  ylab("$ million") +
+  ggtitle("Fig 2.4. Seasonal plot: antidiabetic drug sales")
+```
+
+These are exactly the same data as were shown earlier, but now the data from each season are overlapped. A seasonal plot allows the underlying seasonal pattern to be seen more clearly, and is especially useful in identifying years in which the pattern changes.
+
+In this case, it is clear that there is a large jump in sales in January each year. Actually, these are probably sales in late December as customers stockpile before the end of the calendar year, but the sales are not registered with the government until a week or two later. The graph also shows that there was an unusually small number of sales in March 2008 (most other years show an increase between February and March). The small number of sales in June 2008 is probably due to incomplete counting of sales at the time the data were collected.
+
+## Multiple seasonal periods
+
+Where the data has more than one seasonal pattern, the `period` argument can be used to select which seasonal plot is required. The `vic_elec` data contains half-hourly electricity demand for the state of Victoria, Australia. We can plot the daily pattern, weekly pattern or yearly pattern as follows.
+
+```{r}
+vic_elec %>% gg_season(Demand, period="day") + theme(legend.position = "none")
+```
+
+
+```{r}
+vic_elec %>% gg_season(Demand, period="week") # + theme(legend.position = "none")
+```
+
+```{r}
+vic_elec %>% gg_season(Demand, period="year")
+```
+
+# 2.5  Seasonal subseries plots
+
+An alternative plot that emphasises the seasonal patterns is where the data for each season are collected together in separate mini time plots.
+
+```{r}
+a10 %>%
+  gg_subseries(Cost) +
+    ylab("$ million") +
+    xlab("Year") +
+    ggtitle("Seasonal subseries plot: monthly antidiabetic drug sales in Australia")
+```
+
+The blue horizontal lines indicate the means for each month. This form of plot enables the underlying seasonal pattern to be seen clearly, and also shows the changes in seasonality over time. It is especially useful in identifying changes within particular seasons. In this example, the plot is not particularly revealing; but in some cases, this is the most useful way of viewing seasonal changes over time.
+
+## Example: Australian holiday tourism
+
+Australian quarterly vacation data provides an interesting example of how these plots can reveal information. First we need to extract the relevant data from the `tourism` tsibble. All the usual `tidyverse` wrangling verbs apply. To get the total visitor nights spent on Holiday by State for each quarter (i.e., ignoring Regions) we can use the following code. Note that we do not have to explicitly group by the time index as this is assumed in a `tsibble`.
+
+```{r}
+head(tourism)
+```
+
+```{r}
+holidays <- tourism %>%
+  filter(Purpose == "Holiday") %>%
+  group_by(State) %>%
+  summarise(Trips = sum(Trips))
+
+holidays
+```
+
+Time plots of each series shows that there is strong seasonality for most states, but that the seasonal peaks do not coincide.
+
+```{r}
+holidays %>% autoplot(Trips) +
+  ylab("thousands of trips") + xlab("Year") +
+  ggtitle("Australian domestic holiday nights")
+```
+
+To see the timing of the seasonal peaks in each state, we can use a season plot.
+
+```{r}
+holidays %>% gg_season(Trips) +
+  ylab("thousands of trips") +
+  ggtitle("Season plots of Australian domestic holidays by state")
+```
+
+Here it is clear that the southern states of Australia (Tasmania, Victoria and South Australia) have strongest tourism in Q1 (their summer), while the northern states (Queensland and the Northern Territory) have the strongest tourism in Q3 (their dry season).
+
+The corresponding subseries plots are shown in Figure 2.8.
+
+```{r}
+holidays %>%
+  gg_subseries(Trips) + ylab("thousands of trips") +
+  ggtitle("Fig 2.8. Australian domestic holidays by state")
+```
+
+This figure makes it evident that Western Australian tourism has jumped markedly in recent years, while Victorian tourism has increased in Q1 and Q4 but not in the middle of the year.
+
+# 2.6 Scatterplots
+
+The graphs discussed so far are useful for visualising individual time series. It is also useful to explore relationships between time series.
+
+Figures 2.9 and 2.10 shows two time series: half-hourly electricity demand (in Gigawatts) and temperature (in degrees Celsius), for 2014 in Victoria, Australia. The temperatures are for Melbourne, the largest city in Victoria, while the demand values are for the entire state.
+
+```{r}
+glimpse(vic_elec)
+```
+
+
+```{r}
+vic_elec %>%
+  filter(lubridate::year(Time) == 2014) %>%
+  autoplot(Demand) +
+    xlab("Year: 2014") + ylab(NULL) +
+    ggtitle("Fig 2.9: Half-hourly electricity demand in Victoria, Australia in 2014")
+```
+
+```{r}
+vic_elec %>%
+  filter(lubridate::year(Time) == 2014) %>%
+  autoplot(Temperature) +
+    xlab("Year: 2014") + ylab(NULL) +
+    ggtitle("Fig 2.10: Half-hourly temperatures in Melbourne, Australia in 2014")
+```
+
+We can study the relationship between demand and temperature by plotting one series against the other.
+
+```{r}
+vic_elec %>%
+  filter(lubridate::year(Time) == 2014) %>%
+  ggplot(aes(x = Temperature, y = Demand)) +
+    geom_point() +
+    ylab("Demand (GW)") + xlab("Temperature (Celsius)") +
+  ggtitle("Fig 2.11: Temp vs Demand")
+```
+
+This scatterplot helps us to visualise the relationship between the variables. It is clear that high demand occurs when temperatures are high due to the effect of air-conditioning. But there is also a heating effect, where demand increases for very low temperatures.
+
+## Correlation
+
+It is common to compute correlation coefficients to measure the strength of the relationship between two variables. The correlation between variables *x* and *y* is given by the following equation:
+
+![Eqn 1: Correlation coefficient](images/corr_eqn.jpg)
+
+
+The value of r always lies between − 1 and 1 with negative values indicating a negative relationship and positive values indicating a positive relationship. The graphs in Figure 2.12 show examples of data sets with varying levels of correlation.
+
+![Fig 2.12](images/corr-plot-examples.jpg)
+
+The correlation coefficient only measures the strength of the linear relationship, and can sometimes be misleading. For example, the correlation for the electricity demand and temperature data shown in Figure 2.11 is 0.28, but the non-linear relationship is stronger than that.
+
+The plots in Figure 2.13 all have correlation coefficients of 0.82, but they have very different relationships. This shows how important it is to look at the plots of the data and not simply rely on correlation values.
+
+![Fig 2.13](images/fig2-13.jpg)
+
+# Scatterplot matrices
+
+When there are several potential predictor variables, it is useful to plot each variable against each other variable. Consider the eight time series shown in Figure 2.14, showing quarterly visitor numbers across states and territories of Australia.
+
+```{r}
+visitors <- tourism %>%
+  group_by(State) %>%
+  summarise(Trips = sum(Trips))
+
+visitors
+```
+
+```{r}
+visitors %>%
+  ggplot(aes(x = Quarter, y = Trips)) +
+    geom_line() +
+    facet_grid(vars(State), scales = "free_y") +
+    ylab("Number of visitor nights each quarter (millions)") +
+  ggtitle("Fig 2.14: Quaterly visitor nights for the states and territories of Australia")
+```
+
+To see the relationships between these eight time series, we can plot each time series against the others. These plots can be arranged in a scatterplot matrix, as shown below (This plot requires the `GGally` package to be installed.)
+
+```{r, message=FALSE}
+visitors %>%
+  spread(State, Trips) %>%
+  GGally::ggpairs(columns = 2:9)
+```
+
+Note that each point on the scatterplots refers to a given quarter of a year.
+
+For each panel, the variable on the vertical axis is given by the variable name in that row, and the variable on the horizontal axis is given by the variable name in that column. There are many options available to produce different plots within each panel. In the default version, the correlations are shown in the upper right half of the plot, while the scatterplots are shown in the lower half. On the diagonal are shown density plots.
+
+The value of the scatterplot matrix is that it enables a quick view of the relationships between all pairs of variables. In this example, mostly positive relationships are revealed, with the strongest relationships being between the neighboring states located in the south and south east coast of Australia, namely, New South Wales, Victoria and South Australia. Some negative relationships are also revealed between the Northern Territory and other regions. The Northern Territory is located in the north of Australia famous for its outback desert landscapes visited mostly in winter. Hence, the peak visitation in the Northern Territory is in the July (winter) quarter in contrast to January (summer) quarter for the rest of the regions.
+
+# 2.7 Lag plots
