@@ -1,0 +1,505 @@
+---
+title: "Ch2 - Time series graphics"
+author: "James Gammerman (following Rob Hyndman's online textbook)"
+date: "April 2020"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+        echo = TRUE,
+        comment = "#>",
+        collapse = TRUE)
+```
+
+# Introduction
+
+Chapter link: https://otexts.com/fpp3/graphics.html
+
+The first thing to do in any data analysis task is to plot the data. Graphs enable many features of the data to be visualised, including patterns, unusual observations, changes over time, and relationships between variables. The features that are seen in plots of the data must then be incorporated, as much as possible, into the forecasting methods to be used. Just as the type of data determines what forecasting method to use, it also determines what graphs are appropriate. But before we produce graphs, we need to set up our time series in R.
+
+# 2.1 `tsibble` objects
+
+A time series can be thought of as a list of numbers (the measurements), along with some information about what times those numbers were recorded (the index). This information can be stored as a `tsibble` object in R.
+
+```{r, message=FALSE}
+library(tsibble)
+library(tidyverse)
+library(tsibbledata)
+library(feasts)  # NB need this or get error: the functions for graphics are in the feasts package. So just load the feasts package as well and you can autoplot() a tsibble object.
+
+#setwd("~/Desktop/Data_Science /DS_tutorials/Hyndman_Forecasting_book")
+```
+
+
+```{r}
+y <- tsibble(Year = 2015:2019, Observation = c(123,39,78,52,110), index = Year)
+y
+```
+
+`tsibble` objects extend tidy data frames (`tibble` objects) by introducing temporal structure.
+
+For observations that are more frequent than once per year, we need to use a time class function on the index. For example, suppose we have a monthly dataset `z`:
+
+```{r}
+z <- tibble(Month = c("2019 Jan", "2019 Feb", "2019 Mar", "2019 Apr"), Observation = c(50, 23, 34, 30))
+z
+```
+
+This can be converted to a tsibble object using the `yearmonth()` function:
+
+```{r}
+z2  <- z %>% 
+  mutate(Month = yearmonth(Month)) %>% 
+  as_tsibble(index = Month)
+
+z2
+```
+
+Other time class functions can be used depending on the frequency of the observations:
+
+```{r}
+z3  <- z %>% 
+  mutate(Month = yearquarter(Month)) %>% 
+  as_tsibble(index = Month)
+
+z3
+```
+
+## Working with `tsibble` objects
+
+```{r}
+library(tsibbledata)
+data(PBS)
+PBS 
+```
+
+```{r}
+PBS %>% 
+  filter(ATC2 == "A10") %>% 
+  select(Month, Concession, Type, Cost)
+
+# PBS %>% 
+#   filter(ATC2 == "A10") %>% 
+#   select(Month, Cost)  # invalid as we get duplicate rows for each month (?)
+
+```
+
+```{r}
+PBS %>%
+  filter(ATC2=="A10") %>%
+  select(Month, Concession, Type, Cost) %>%
+  summarise(TotalC = sum(Cost))
+
+
+```
+
+```{r}
+PBS %>%
+  filter(ATC2=="A10") %>%
+  select(Month, Concession, Type, Cost) %>%
+  summarise(TotalC = sum(Cost)) %>%
+  mutate(Cost = TotalC/1e6)
+```
+
+```{r}
+PBS %>%
+  filter(ATC2=="A10") %>%
+  select(Month, Concession, Type, Cost) %>%
+  summarise(TotalC = sum(Cost)) %>%
+  mutate(Cost = TotalC/1e6) -> a10
+
+a10
+```
+
+## Read a csv file and convert to a tsibble
+
+```{r}
+
+# Doesn't work on work laptop due to firewall
+
+# prison <- readr::read_csv("https://OTexts.com/fpp3/extrafiles/prison_population.csv")
+# 
+# prison <- prison %>%
+#   mutate(quarter = yearquarter(date)) %>%
+#   select(-date) %>%
+#   as_tsibble(key = c(state, gender, legal, indigenous), index = quarter)
+# 
+# prison
+
+```
+
+*For a tsibble to be valid, it requires a unique index for each combination of keys. The `tsibble()` or `as_tsibble()` function will return an error if this is not true.*
+
+## The seasonal period
+
+Some graphics and some models will use the seasonal period of the data. The seasonal period is the number of observations before the seasonal pattern repeats. In most cases, this will be automatically detected using the time index variable.
+
+For quarterly, monthly and weekly data, there is only one seasonal period — the number of observations within each year. Actually, there are not  
+52 weeks in a year, but 365.25/7= 52.18 on average, allowing for a leap year every fourth year. Approximating seasonal periods to integers can be useful as many seasonal terms in models only support integer seasonal periods.
+
+If the data is observed more than once per week, then there is often more than one seasonal pattern in the data. For example, data with daily observations might have weekly (period = 7) or annual (period = 365.25) seasonal patterns. The same goes for data observed every minute (hourly, daily, weekly and annual seasonality).
+
+More complicated (and unusual) seasonal patterns can be specified using the `period()` function in the lubridate package.
+
+# 2.2 Time plots
+
+For time series data, the obvious graph to start with is a time plot. That is, the observations are plotted against the time of observation, with consecutive observations joined by straight lines. Figure 2.1 below shows the weekly economy passenger load on Ansett Airlines between Australia’s two largest cities.
+
+Let's start by inspecting the data:
+
+```{r}
+data(ansett)
+tail(ansett)
+glimpse(ansett)
+summary(ansett)
+```
+
+Now we plot:
+
+```{r}
+library(feasts)  # NB need this or get error: the functions for graphics are in the feasts package. So just load the feasts package as well and you can autoplot() a tsibble object.
+
+melsyd_economy <- ansett %>%
+  filter(Airports == "MEL-SYD", Class=="Economy")
+
+melsyd_economy %>%
+  autoplot(Passengers) +
+    labs(title = "Ansett economy class passengers", subtitle = "Melbourne-Sydney") +
+    xlab("Year")
+```
+
+We will use the `autoplot()` command frequently. It automatically produces an appropriate plot of whatever you pass to it in the first argument. In this case, it recognises `melsyd_economy` as a time series and produces a time plot.
+
+The time plot immediately reveals some interesting features.
+
+* There was a period in 1989 when no passengers were carried — this was due to an industrial dispute.
+
+* There was a period of reduced load in 1992. This was due to a trial in which some economy class seats were replaced by business class seats.
+
+* A large increase in passenger load occurred in the second half of 1991.
+
+* There are some large dips in load around the start of each year. These are due to holiday effects.
+
+* There is a long-term fluctuation in the level of the series which increases during 1987, decreases in 1989, and increases again through 1990 and 1991.
+
+* There are some periods of missing observations.
+
+Any model will need to take all these features into account in order to effectively forecast the passenger load into the future.
+
+A simpler time series is shown in Figure 2.2, using the a10 data saved earlier:
+
+```{r}
+a10 %>% autoplot(Cost) +
+  ggtitle("Antidiabetic drug sales") +
+  ylab("$ million") + xlab("Year")
+```
+
+Here, there is a clear and increasing trend. There is also a strong seasonal pattern that increases in size as the level of the series increases. The sudden drop at the start of each year is caused by a government subsidisation scheme that makes it cost-effective for patients to stockpile drugs at the end of the calendar year. Any forecasts of this series would need to capture the seasonal pattern, and the fact that the trend is changing slowly.
+
+# 2.3 Time series patterns
+
+In describing these time series, we have used words such as “trend” and “seasonal” which need to be defined more carefully.
+
+*Trend*
+
+* A trend exists when there is a long-term increase or decrease in the data. It does not have to be linear. Sometimes we will refer to a trend as “changing direction”, when it might go from an increasing trend to a decreasing trend. There is a trend in the antidiabetic drug sales data shown in Figure 2.2.
+
+*Seasonal*
+
+A seasonal pattern occurs when a time series is affected by seasonal factors such as the time of the year or the day of the week. Seasonality is always of a fixed and known period. The monthly sales of antidiabetic drugs (figure 2.2) shows seasonality which is induced partly by the change in the cost of the drugs at the end of the calendar year.
+
+*Cyclic*
+
+A cycle occurs when the data exhibit rises and falls that are not of a fixed frequency. These fluctuations are usually due to economic conditions, and are often related to the “business cycle”. The duration of these fluctuations is usually at least 2 years.
+
+Many people confuse cyclic behaviour with seasonal behaviour, but they are really quite different. If the fluctuations are not of a fixed frequency then they are cyclic; if the frequency is unchanging and associated with some aspect of the calendar, then the pattern is seasonal. In general, the average length of cycles is longer than the length of a seasonal pattern, and the magnitudes of cycles tend to be more variable than the magnitudes of seasonal patterns.
+
+Many time series include trend, cycles and seasonality. When choosing a forecasting method, we will first need to identify the time series patterns in the data, and then choose a method that is able to capture the patterns properly.
+
+The examples in Figure 2.3 show different combinations of the above components:
+
+![Fig 2.3: Four exmaples of time series showing different patterns](images/fig2-3.jpg)
+
+1. The monthly housing sales (top left) show strong seasonality within each year, as well as some strong cyclic behaviour with a period of about 6–10 years. There is no apparent trend in the data over this period.
+
+2. The US treasury bill contracts (top right) show results from the Chicago market for 100 consecutive trading days in 1981. Here there is no seasonality, but an obvious downward trend. Possibly, if we had a much longer series, we would see that this downward trend is actually part of a long cycle, but when viewed over only 100 days it appears to be a trend.
+
+3. The Australian quarterly electricity production (bottom left) shows a strong increasing trend, with strong seasonality. There is no evidence of any cyclic behaviour here.
+
+4. The daily change in the Google closing stock price (bottom right) has no trend, seasonality or cyclic behaviour. There are random fluctuations which do not appear to be very predictable, and no strong patterns that would help with developing a forecasting model.
+
+# 2.4 Seasonal plots
+
+A seasonal plot is similar to a time plot except that the data are plotted against the individual “seasons” in which the data were observed. An example is given below showing the antidiabetic drug sales.
+
+```{r}
+a10 %>% gg_season(Cost, labels = "both") +
+  ylab("$ million") +
+  ggtitle("Fig 2.4. Seasonal plot: antidiabetic drug sales")
+```
+
+These are exactly the same data as were shown earlier, but now the data from each season are overlapped. A seasonal plot allows the underlying seasonal pattern to be seen more clearly, and is especially useful in identifying years in which the pattern changes.
+
+In this case, it is clear that there is a large jump in sales in January each year. Actually, these are probably sales in late December as customers stockpile before the end of the calendar year, but the sales are not registered with the government until a week or two later. The graph also shows that there was an unusually small number of sales in March 2008 (most other years show an increase between February and March). The small number of sales in June 2008 is probably due to incomplete counting of sales at the time the data were collected.
+
+## Multiple seasonal periods
+
+Where the data has more than one seasonal pattern, the `period` argument can be used to select which seasonal plot is required. The `vic_elec` data contains half-hourly electricity demand for the state of Victoria, Australia. We can plot the daily pattern, weekly pattern or yearly pattern as follows.
+
+```{r}
+vic_elec %>% gg_season(Demand, period="day") + theme(legend.position = "none")
+```
+
+
+```{r}
+vic_elec %>% gg_season(Demand, period="week") # + theme(legend.position = "none")
+```
+
+```{r}
+vic_elec %>% gg_season(Demand, period="year")
+```
+
+# 2.5  Seasonal subseries plots
+
+An alternative plot that emphasises the seasonal patterns is where the data for each season are collected together in separate mini time plots.
+
+```{r}
+a10 %>%
+  gg_subseries(Cost) +
+    ylab("$ million") +
+    xlab("Year") +
+    ggtitle("Seasonal subseries plot: monthly antidiabetic drug sales in Australia")
+```
+
+The blue horizontal lines indicate the means for each month. This form of plot enables the underlying seasonal pattern to be seen clearly, and also shows the changes in seasonality over time. It is especially useful in identifying changes within particular seasons. In this example, the plot is not particularly revealing; but in some cases, this is the most useful way of viewing seasonal changes over time.
+
+## Example: Australian holiday tourism
+
+Australian quarterly vacation data provides an interesting example of how these plots can reveal information. First we need to extract the relevant data from the `tourism` tsibble. All the usual `tidyverse` wrangling verbs apply. To get the total visitor nights spent on Holiday by State for each quarter (i.e., ignoring Regions) we can use the following code. Note that we do not have to explicitly group by the time index as this is assumed in a `tsibble`.
+
+```{r}
+head(tourism)
+```
+
+```{r}
+holidays <- tourism %>%
+  filter(Purpose == "Holiday") %>%
+  group_by(State) %>%
+  summarise(Trips = sum(Trips))
+
+holidays
+```
+
+Time plots of each series shows that there is strong seasonality for most states, but that the seasonal peaks do not coincide.
+
+```{r}
+holidays %>% autoplot(Trips) +
+  ylab("thousands of trips") + xlab("Year") +
+  ggtitle("Australian domestic holiday nights")
+```
+
+To see the timing of the seasonal peaks in each state, we can use a season plot.
+
+```{r}
+holidays %>% gg_season(Trips) +
+  ylab("thousands of trips") +
+  ggtitle("Season plots of Australian domestic holidays by state")
+```
+
+Here it is clear that the southern states of Australia (Tasmania, Victoria and South Australia) have strongest tourism in Q1 (their summer), while the northern states (Queensland and the Northern Territory) have the strongest tourism in Q3 (their dry season).
+
+The corresponding subseries plots are shown in Figure 2.8.
+
+```{r}
+holidays %>%
+  gg_subseries(Trips) + ylab("thousands of trips") +
+  ggtitle("Fig 2.8. Australian domestic holidays by state")
+```
+
+This figure makes it evident that Western Australian tourism has jumped markedly in recent years, while Victorian tourism has increased in Q1 and Q4 but not in the middle of the year.
+
+# 2.6 Scatterplots
+
+The graphs discussed so far are useful for visualising individual time series. It is also useful to explore relationships between time series.
+
+Figures 2.9 and 2.10 shows two time series: half-hourly electricity demand (in Gigawatts) and temperature (in degrees Celsius), for 2014 in Victoria, Australia. The temperatures are for Melbourne, the largest city in Victoria, while the demand values are for the entire state.
+
+```{r}
+glimpse(vic_elec)
+```
+
+
+```{r}
+vic_elec %>%
+  filter(lubridate::year(Time) == 2014) %>%
+  autoplot(Demand) +
+    xlab("Year: 2014") + ylab(NULL) +
+    ggtitle("Fig 2.9: Half-hourly electricity demand in Victoria, Australia in 2014")
+```
+
+```{r}
+vic_elec %>%
+  filter(lubridate::year(Time) == 2014) %>%
+  autoplot(Temperature) +
+    xlab("Year: 2014") + ylab(NULL) +
+    ggtitle("Fig 2.10: Half-hourly temperatures in Melbourne, Australia in 2014")
+```
+
+We can study the relationship between demand and temperature by plotting one series against the other.
+
+```{r}
+vic_elec %>%
+  filter(lubridate::year(Time) == 2014) %>%
+  ggplot(aes(x = Temperature, y = Demand)) +
+    geom_point() +
+    ylab("Demand (GW)") + xlab("Temperature (Celsius)") +
+  ggtitle("Fig 2.11: Temp vs Demand")
+```
+
+This scatterplot helps us to visualise the relationship between the variables. It is clear that high demand occurs when temperatures are high due to the effect of air-conditioning. But there is also a heating effect, where demand increases for very low temperatures.
+
+## Correlation
+
+It is common to compute correlation coefficients to measure the strength of the relationship between two variables. The correlation between variables *x* and *y* is given by the following equation:
+
+![Eqn 1: Correlation coefficient](images/corr_eqn.jpg)
+
+
+The value of r always lies between − 1 and 1 with negative values indicating a negative relationship and positive values indicating a positive relationship. The graphs in Figure 2.12 show examples of data sets with varying levels of correlation.
+
+![Fig 2.12](images/corr-plot-examples.jpg)
+
+The correlation coefficient only measures the strength of the linear relationship, and can sometimes be misleading. For example, the correlation for the electricity demand and temperature data shown in Figure 2.11 is 0.28, but the non-linear relationship is stronger than that.
+
+The plots in Figure 2.13 all have correlation coefficients of 0.82, but they have very different relationships. This shows how important it is to look at the plots of the data and not simply rely on correlation values.
+
+![Fig 2.13](images/fig2-13.jpg)
+
+# Scatterplot matrices
+
+When there are several potential predictor variables, it is useful to plot each variable against each other variable. Consider the eight time series shown in Figure 2.14, showing quarterly visitor numbers across states and territories of Australia.
+
+```{r}
+visitors <- tourism %>%
+  group_by(State) %>%
+  summarise(Trips = sum(Trips))
+
+visitors
+```
+
+```{r}
+visitors %>%
+  ggplot(aes(x = Quarter, y = Trips)) +
+    geom_line() +
+    facet_grid(vars(State), scales = "free_y") +
+    ylab("Number of visitor nights each quarter (millions)") +
+  ggtitle("Fig 2.14: Quaterly visitor nights for the states and territories of Australia")
+```
+
+To see the relationships between these eight time series, we can plot each time series against the others. These plots can be arranged in a scatterplot matrix, as shown below (This plot requires the `GGally` package to be installed.)
+
+```{r, message=FALSE}
+visitors %>%
+  spread(State, Trips) %>%
+  GGally::ggpairs(columns = 2:9)
+```
+
+Note that each point on the scatterplots refers to a given quarter of a year.
+
+For each panel, the variable on the vertical axis is given by the variable name in that row, and the variable on the horizontal axis is given by the variable name in that column. There are many options available to produce different plots within each panel. In the default version, the correlations are shown in the upper right half of the plot, while the scatterplots are shown in the lower half. On the diagonal are shown density plots.
+
+The value of the scatterplot matrix is that it enables a quick view of the relationships between all pairs of variables. In this example, mostly positive relationships are revealed, with the strongest relationships being between the neighboring states located in the south and south east coast of Australia, namely, New South Wales, Victoria and South Australia. Some negative relationships are also revealed between the Northern Territory and other regions. The Northern Territory is located in the north of Australia famous for its outback desert landscapes visited mostly in winter. Hence, the peak visitation in the Northern Territory is in the July (winter) quarter in contrast to January (summer) quarter for the rest of the regions.
+
+# 2.7 Lag plots
+
+Figure 2.16 displays scatterplots of quarterly Australian beer production (we introduced in Figure 1.1), where the horizontal axis shows lagged values of the time series. Each graph shows $y_{t}$ with plotted against $y_{t-k}$ for different values of $k$.
+
+```{r}
+recent_production <- aus_production %>%
+   filter(lubridate::year(Quarter) >= 1992)
+
+recent_production %>% 
+  gg_lag(Beer, geom="point") +
+  ggtitle("Fig 2.16:  Lagged scatterplots for quarterly beer production")
+  
+```
+
+Here the colours indicate the quarter of the variable on the vertical axis. The relationship is strongly positive at lags 4 and 8, reflecting the strong seasonality in the data. The negative relationship seen for lags 2 and 6 occurs because peaks (in Q4) are plotted against troughs (in Q2)
+
+The `filter()` function used here is very useful when extracting a portion of a time series. In this case, we have extracted the data from `aus_production`, beginning in 1992.
+
+# 2.8  Autocorrelation
+
+Just as correlation measures the extent of a linear relationship between two variables, autocorrelation measures the linear relationship between lagged values of a time series.
+
+There are several autocorrelation coefficients, corresponding to each panel in the lag plot. For example, $r1$ measures the relationship between $y_{t}$ and $y_{t-1}$, $r2$ measures the relationship between $y_{t}$ and $y_{t-2}$ and so on.
+
+The value of $r_{k}$ can be written as:
+
+![](images/autocorr_formula.PNG)
+
+Where $T$ is the length of the time series. The autocorrelation coefficients make up the autocorrelation function or ACF.
+
+The autocorrelation coefficients for the beer production data can be computed using the `ACF()` function.
+
+```{r}
+recent_production %>% ACF(Beer, lag_max = 9)
+```
+
+The values in the acf column are $r1,...,r9$, corresponding to the nine scatterplots in Figure 2.16. We usually plot the ACF to see how the correlations change with the lag $k$. The plot is sometimes known as a *correlogram*.
+
+```{r}
+recent_production %>% 
+  ACF(Beer) %>% 
+  autoplot() +
+  ggtitle("Figure 2.17: Autocorrelation function of quarterly beer production.")
+```
+
+In this graph:
+
+* $r_{4}$ is higher than for the other lags. This is due to the seasonal pattern in the data: the peaks tend to be four quarters apart and the troughs tend to be four quarters apart.
+
+* $r_{2}$ is more negative than for the other lags because troughs tend to be two quarters behind peaks.
+
+* The dashed blue lines indicate whether the correlations are significantly different from zero. These are explained in Section 2.9.
+
+## Trend and seasonality in ACF plots
+
+When data have a trend, the autocorrelations for small lags tend to be large and positive because observations nearby in time are also nearby in size. So the ACF of trended time series tend to have positive values that slowly decrease as the lags increase.
+
+When data are seasonal, the autocorrelations will be larger for the seasonal lags (at multiples of the seasonal frequency) than for other lags.
+
+When data are both trended and seasonal, you see a combination of these effects. The `a10` data plotted in Figure 2.2 shows both trend and seasonality. Its ACF is shown in Figure 2.18.
+
+```{r}
+a10 %>% 
+  ACF(Cost, lag_max = 48) %>% 
+  autoplot() +
+  ggtitle("Figure 2.18: ACF of monthly Australian electricity demand.")
+```
+
+The slow decrease in the ACF as the lags increase is due to the trend, while the “scalloped” shape is due the seasonality.
+
+# 2.9  White noise
+
+Time series that show no autocorrelation are called **white noise**. Figure 2.19 gives an example of a white noise series.
+
+```{r}
+set.seed(30)
+y <- tsibble(sample = 1:50, wn = rnorm(50), index = sample)
+
+y %>% 
+  autoplot(wn) + ggtitle("White noise") +
+  ggtitle("A white noise time series")
+```
+
+```{r}
+y %>% ACF(wn) %>% 
+  autoplot() +
+  ggtitle("Figure 2.20: Autocorrelation function for the white noise series")
+```
+
+For white noise series, we expect each autocorrelation to be close to zero. Of course, they will not be exactly equal to zero as there is some random variation. For a white noise series, we expect 95% of the spikes in the ACF to lie within $\mp{2} \div \sqrt{T}$ where 
